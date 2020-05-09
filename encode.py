@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
 
-"""
-Simple non-learned baseline.
-
-ENCODE: (function `encoder` below)
-  Inputs: frame 1 (F1) and frame 2 (F2).
-  Encode F2 given F1:
-  1. Calculate Residual_Normalized = (F2 - F1) // 2 + 127
-     (this is now in range {0, ..., 255}.
-      The idea of the //2 is to have 256 possible values, because
-      otherwise we would have 511 values.)
-  2. Compress Residual_Normalized with JPG
-  -> Save to Bitstream
-DECODE: (function `decoder` below)
-  Inputs: F1 and Bitstream
-  1. Get Residual_Normalized from JPG in Bistream
-  2. F2' = F1 + ( Residual_normalized - 127 ) * 2
-     (F2' is the reconstruction)
-"""
-
 import argparse
 import time
 from io import BytesIO
@@ -27,6 +8,7 @@ from os.path import isdir, isfile
 import glob
 from PIL import Image
 import numpy as np
+from shutil import copyfile
 
 import pframe_dataset_shared
 
@@ -62,6 +44,7 @@ def compress_folder(data_dir, output_dir):
         assert len(inputs) > 0, 'No inputs!'
 
         N = len(inputs)
+        num_channels = 3
         start = time.time()
 
         bpps = []  # Bpps of individual images
@@ -69,22 +52,21 @@ def compress_folder(data_dir, output_dir):
         bytes_img = []  # Store bytes of Y, U, V
 
         for count, p1 in enumerate(inputs):
-            p2 = p1.split('_')
-            p2[-2] = str(int(p2[-2]) + 1)
-            while len(p2[-2]) < 5:
-                p2[-2] = '0' + p2[-2]
-            p2 = '_'.join(p2)
-            #print(p2)
+            p2 = ''
+            if count + num_channels < len(inputs):
+                p2 = inputs[count + num_channels]
             if isfile(p2):
-                p2_expected = pframe_dataset_shared.get_frame_path(p1, offset=1)
-                assert os.path.basename(p2_expected) == os.path.basename(p2), (p1, p2)
+                if count < num_channels:
+                    p_out = os.path.join(os.path.join(output_dir, d), os.path.splitext(os.path.basename(p1))[0] + '.png')
+                    copyfile(p1, p_out)
+
+                p_out = os.path.join(os.path.join(output_dir, d), os.path.splitext(os.path.basename(p2))[0] + '.' + EXTENSION)
                 i1, i2 = np.array(Image.open(p1)), np.array(Image.open(p2))
 
-                p_out = os.path.join(os.path.join(output_dir, d), os.path.splitext(os.path.basename(p1))[0] + '.' + EXTENSION)
                 encoded = encoder(i1, i2)
                 bytes_img.append(len(encoded))
                 if '_y.png' in p1:  # Y always comes last!
-                    assert len(bytes_img) == 3, len(bytes_img)
+                    assert len(bytes_img) == num_channels, len(bytes_img)
                     total_bytes += sum(bytes_img)
                     bpp = sum(bytes_img) * 8 / np.prod(i1.shape)
                     bpps.append(bpp)
